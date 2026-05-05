@@ -1,0 +1,12 @@
+# Active clasp config — swapped by deploy.js, not tracked
+.clasp.json
+
+# Clasp auth tokens — never commit these
+.clasprc.json
+
+# Node
+node_modules/
+
+# OS
+.DS_Store
+Thumbs.db
