@@ -139,15 +139,16 @@ function onOpen() {
     .addItem("🔄 Refresh — Last 7 Days",  "refreshLast7Days")
     .addItem("🔄 Refresh — Last 30 Days", "refreshLast30Days")
     .addItem("🗂️ Full Refresh (All Jobs)", "fullRefresh")
-    .addSeparator()
-    .addItem("🏷️ Generate Short Labels",  "generateShortLabels")
+    //.addSeparator()
+    //.addItem("🏷️ Generate Short Labels",  "generateShortLabels")
     .addSeparator()
     .addItem("💾 Backup Data",            "backupData")
     .addItem("📂 Load Backup", "loadBackup")
-    .addItem("📋 List Backups", "listBackups")
-    .addItem("🗑️ Clear Data",             "clearData")
     .addSeparator()
-    .addItem("🔧 Setup Sheets (First Run)", "setupSheets")
+    .addItem("📋 List Backups", "listBackups")
+    //.addItem("🗑️ Clear Data",             "clearData")
+    //.addSeparator()
+    //.addItem("🔧 Setup Sheets (First Run)", "setupSheets")
     .addToUi();
 }
 
