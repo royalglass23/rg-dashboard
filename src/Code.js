@@ -696,7 +696,7 @@ function _createJobMaterialsSheet(ss) {
   sheet.setColumnWidth(MAT.shortLabel, 320);
 
   sheet.getBandings().forEach(b => b.remove());
-  sheet.getRange(1, 1, sheet.getMaxRows(), WO.totalCols)
+  sheet.getRange(1, 1, sheet.getMaxRows(), MAT.totalCols)
     .applyRowBanding()
     .setHeaderRowColor(T.headerBg)
     .setFirstRowColor("#ffffff")
