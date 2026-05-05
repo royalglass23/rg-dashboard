@@ -75,6 +75,60 @@ const CONFIG = {
 
 };
 
+// ============================================================
+// LOAD BACK UP
+// ============================================================
+
+function loadBackup() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ui = SpreadsheetApp.getUi();
+
+  const uniqueDates = [...new Set(
+    ss.getSheets()
+      .filter(s => s.getName().startsWith("Backup —"))
+      .sort((a, b) => b.getName().localeCompare(a.getName()))
+      .map(s => s.getName().split(" | ")[0].replace("Backup — ", ""))
+  )];
+
+  if (uniqueDates.length === 0) { ui.alert("No backups found."); return; }
+
+  const list   = uniqueDates.map((d, i) => `${i + 1}. ${d}`).join("\n");
+  const result = ui.prompt("Load Backup", "Available backups:\n\n" + list + "\n\nType the number to restore:", ui.ButtonSet.OK_CANCEL);
+
+  if (result.getSelectedButton() !== ui.Button.OK) return;
+
+  const choice = parseInt(result.getResponseText().trim()) - 1;
+  if (isNaN(choice) || choice < 0 || choice >= uniqueDates.length) {
+    ui.alert("Invalid selection.");
+    return;
+  }
+
+  const selectedDate = uniqueDates[choice];
+  const confirm = ui.alert("Restore Backup", "Overwrite current data with backup from:\n" + selectedDate + "\n\nThis cannot be undone. Continue?", ui.ButtonSet.YES_NO);
+  if (confirm !== ui.Button.YES) return;
+
+  [CONFIG.sheets.workOrders, CONFIG.sheets.jobMaterials].forEach(name => {
+    const backup = ss.getSheetByName("Backup — " + selectedDate + " | " + name);
+    const target = ss.getSheetByName(name);
+    if (!backup || !target) return;
+  
+    const lastRow = backup.getLastRow();
+    const lastCol = backup.getLastColumn();
+    if (lastRow < 1 || lastCol < 1) return;
+  
+    const range = backup.getRange(1, 1, lastRow, lastCol);
+  
+    const values = range.getValues();
+    const notes  = range.getNotes();   // ← captures all hover tooltips
+  
+    target.clearContents();
+    target.getRange(1, 1, lastRow, lastCol).setValues(values);
+    target.getRange(1, 1, lastRow, lastCol).setNotes(notes);  // ← restores them
+  });
+
+  ui.alert("Restored backup from " + selectedDate);
+}
+
 
 // ============================================================
 // MENU
@@ -85,13 +139,16 @@ function onOpen() {
     .addItem("🔄 Refresh — Last 7 Days",  "refreshLast7Days")
     .addItem("🔄 Refresh — Last 30 Days", "refreshLast30Days")
     .addItem("🗂️ Full Refresh (All Jobs)", "fullRefresh")
-    .addSeparator()
-    .addItem("🏷️ Generate Short Labels",  "generateShortLabels")
+    //.addSeparator()
+    //.addItem("🏷️ Generate Short Labels",  "generateShortLabels")
     .addSeparator()
     .addItem("💾 Backup Data",            "backupData")
-    .addItem("🗑️ Clear Data",             "clearData")
+    .addItem("📂 Load Backup", "loadBackup")
     .addSeparator()
-    .addItem("🔧 Setup Sheets (First Run)", "setupSheets")
+    .addItem("📋 List Backups", "listBackups")
+    //.addItem("🗑️ Clear Data",             "clearData")
+    //.addSeparator()
+    //.addItem("🔧 Setup Sheets (First Run)", "setupSheets")
     .addToUi();
 }
 
@@ -149,6 +206,7 @@ function fullRefresh() {
 //    excludes invoice items, then generates labels.
 // ============================================================
 function _runRefresh(days) {
+  _archiveAuditLogIfNeeded();   // for archiving old audit log entries
   const ss     = SpreadsheetApp.getActiveSpreadsheet();
   const sm8Key = PropertiesService.getScriptProperties().getProperty(CONFIG.sm8.scriptPropKey);
 
@@ -428,16 +486,32 @@ function generateShortLabels() {
 function backupData() {
   const ss    = SpreadsheetApp.getActiveSpreadsheet();
   const label = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd MMM yyyy HH:mm");
+  const MAX_BACKUPS = 5;
 
-  [CONFIG.sheets.workOrders, CONFIG.sheets.jobMaterials].forEach(name => {
+   [CONFIG.sheets.workOrders, CONFIG.sheets.jobMaterials].forEach(name => {
     const source = ss.getSheetByName(name);
     if (!source) return;
     const copy = source.copyTo(ss);
     copy.setName("Backup — " + label + " | " + name);
-    copy.hideSheet(); // Keeps tabs clean — unhide via right-click on sheet tab
+    copy.hideSheet();
   });
 
-  ss.toast("Backup saved as hidden sheets: 'Backup — " + label + "'", "💾 Backup Done", 5);
+  // Get all backups sorted oldest first, delete if over limit
+  const allBackups = ss.getSheets()
+    .filter(s => s.getName().startsWith("Backup —"))
+    .sort((a, b) => a.getName().localeCompare(b.getName()));
+
+  const uniqueDates = [...new Set(allBackups.map(s => s.getName().split(" | ")[0]))];
+
+  if (uniqueDates.length > MAX_BACKUPS) {
+    const oldest = uniqueDates[0];
+    allBackups
+      .filter(s => s.getName().startsWith(oldest))
+      .forEach(s => ss.deleteSheet(s));
+    Logger.log("Deleted old backup: " + oldest);
+  }
+
+  ss.toast("Backup saved. Keeping latest " + MAX_BACKUPS + " backups.", "💾 Backup Done", 5);
 }
 
 
@@ -582,8 +656,12 @@ function _createWorkOrdersSheet(ss) {
 
   sheet.setFrozenRows(1);
   sheet.hideColumns(WO.uuid);
-  sheet.getRange("A:E").setBackground(T.sm8Bg);
-  sheet.getRange("F:F").setBackground(T.manualBg);
+  sheet.getBandings().forEach(b => b.remove());
+  sheet.getRange(1, 1, sheet.getMaxRows(), WO.totalCols)
+    .applyRowBanding()
+    .setHeaderRowColor(T.headerBg)
+    .setFirstRowColor("#ffffff")
+    .setSecondRowColor("#eef3f8");
 
   const rows = Math.max(sheet.getMaxRows(), 100);
   sheet.getRange(2, WO.status, rows - 1, 1).setDataValidation(
@@ -617,9 +695,12 @@ function _createJobMaterialsSheet(ss) {
   sheet.hideColumns(MAT.uuid);     // Hidden — primary key (col R)
   sheet.setColumnWidth(MAT.shortLabel, 320);
 
-  sheet.getRange("A:E").setBackground(T.sm8Bg);
-  sheet.getRange("G:G").setBackground(T.labelBg);
-  sheet.getRange("H:Q").setBackground(T.manualBg);
+  sheet.getBandings().forEach(b => b.remove());
+  sheet.getRange(1, 1, sheet.getMaxRows(), WO.totalCols)
+    .applyRowBanding()
+    .setHeaderRowColor(T.headerBg)
+    .setFirstRowColor("#ffffff")
+    .setSecondRowColor("#eef3f8");
 
   const rows     = Math.max(sheet.getMaxRows(), 100);
   const dateRule = SpreadsheetApp.newDataValidation().requireDate().setAllowInvalid(true).build();
@@ -673,7 +754,11 @@ function _getDateDaysAgo(n) {
 
 function _deleteAllDataRows(sheet) {
   if (!sheet || sheet.getLastRow() < 2) return;
-  sheet.deleteRows(2, sheet.getLastRow() - 1);
+  const lastRow = sheet.getLastRow();
+  sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn()).clearContent();
+  if (lastRow > 2) {
+    sheet.deleteRows(3, lastRow - 2);
+  }
 }
 
 function _writeAuditLog(e, sheetName, row, col, sheet) {
@@ -790,4 +875,85 @@ function backfillNotes() {
   });
 
   ss.toast("Notes backfilled.", "✅ Done", 3);
+}
+
+function listBackups() {
+  const ss      = SpreadsheetApp.getActiveSpreadsheet();
+  const backups = ss.getSheets()
+    .filter(s => s.getName().startsWith("Backup —"))
+    .map(s => s.getName());
+
+  if (backups.length === 0) {
+    SpreadsheetApp.getUi().alert("No backups found.");
+    return;
+  }
+
+  SpreadsheetApp.getUi().alert(
+    "Existing Backups (" + backups.length + ")",
+    backups.join("\n"),
+    SpreadsheetApp.getUi().ButtonSet.OK
+  );
+}
+
+function _archiveAuditLogIfNeeded() {
+  const ss         = SpreadsheetApp.getActiveSpreadsheet();
+  const auditSheet = ss.getSheetByName(CONFIG.sheets.auditLog);
+  if (!auditSheet || auditSheet.getLastRow() < 2) return;
+
+  const cutoff  = new Date();
+  cutoff.setDate(cutoff.getDate() - 30);
+
+  const data     = auditSheet.getRange(2, 1, auditSheet.getLastRow() - 1, 8).getValues();
+  const toKeep   = [];
+  const toArchive = [];
+
+  data.forEach(row => {
+    const ts = new Date(row[0]);
+    (ts < cutoff ? toArchive : toKeep).push(row);
+  });
+
+  if (toArchive.length === 0) return;
+
+  // Write archive
+  const monthLabel  = Utilities.formatDate(cutoff, Session.getScriptTimeZone(), "MMM yyyy");
+  const archiveName = "Audit Archive — " + monthLabel;
+  let archiveSheet  = ss.getSheetByName(archiveName);
+
+  if (!archiveSheet) {
+    archiveSheet = ss.insertSheet(archiveName);
+    archiveSheet.getRange(1, 1, 1, 8).setValues([[
+      "Timestamp", "Edited By", "Sheet", "Job No", "Client Name", "Column", "Old Value", "New Value"
+    ]]).setBackground(CONFIG.theme.headerBg).setFontColor(CONFIG.theme.headerFont).setFontWeight("bold");
+    archiveSheet.setFrozenRows(1);
+    archiveSheet.hideSheet();
+  }
+
+  const archiveLastRow = archiveSheet.getLastRow();
+  archiveSheet.getRange(archiveLastRow + 1, 1, toArchive.length, 8).setValues(toArchive);
+
+  // Rewrite active log with only recent rows
+  auditSheet.getRange(2, 1, auditSheet.getLastRow() - 1, 8).clearContent();
+  if (toKeep.length > 0) {
+    auditSheet.getRange(2, 1, toKeep.length, 8).setValues(toKeep);
+  }
+
+  Logger.log("Archived " + toArchive.length + " audit rows to " + archiveName);
+}
+
+function deleteAllBackups() {
+  const ss      = SpreadsheetApp.getActiveSpreadsheet();
+  const ui      = SpreadsheetApp.getUi();
+  const backups = ss.getSheets().filter(s => s.getName().startsWith("Backup —"));
+
+  if (backups.length === 0) { ui.alert("No backups found."); return; }
+
+  const confirm = ui.alert(
+    "Delete All Backups",
+    `This will permanently delete ${backups.length} backup sheet(s). Cannot be undone.\n\nContinue?`,
+    ui.ButtonSet.YES_NO
+  );
+  if (confirm !== ui.Button.YES) return;
+
+  backups.forEach(s => ss.deleteSheet(s));
+  ss.toast(`Deleted ${backups.length} backup(s).`, "🗑️ Done", 3);
 }

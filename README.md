@@ -1,88 +1,86 @@
 # Royal Glass — Work Order Dashboard
 
-Google Apps Script project managed with clasp and GitHub.
+Google Apps Script project managed with clasp and GitHub. Pulls live job and material data from ServiceM8, generates AI-powered short labels via Claude Haiku, and provides a production dashboard for Royal Glass NZ.
 
 ---
 
 ## Environments
 
-| Environment | Spreadsheet | Branch |
-|---|---|---|
-| Staging | Staging WO Dashboard | `staging` |
-| Live | Work Order Dashboard | `main` |
+| Environment | Spreadsheet | Branch | Script ID |
+|---|---|---|---|
+| Staging | Staging WO Dashboard | `staging` | `1Pw9H3bXCS_UHM8ZaLxZ1UWpfN802IEcA4vF8tSqEeovbP6wIci1Y6LAT` |
+| Live | Work Order Dashboard | `main` | `10xFAWGlibXl9fOkMeHktmBaYWyyjN9xV284T7zzNwLCiwQCfPF9zEiLs` |
 
 **Rule: never deploy straight to live. Always test on staging first.**
 
 ---
 
-## First-Time Setup
+## Stack
 
-### 1. Install clasp globally
+- **Google Apps Script** — runtime
+- **Google Sheets** — data store (future: PostgreSQL)
+- **ServiceM8 API** — job and material source
+- **Anthropic Claude Haiku** — AI label generation
+- **clasp** — Apps Script CLI
+- **GitHub** — version control
+
+---
+
+## Quick Start
+
+### Prerequisites
+
+- Node.js v16+
+- npm
+- Google account with access to both spreadsheets
+- Apps Script API enabled at https://script.google.com/home/usersettings
+
+### Setup
 
 ```bash
-npm install -g @google/clasp
-```
-
-### 2. Install project dependencies
-
-```bash
+git clone https://github.com/royalglass23/royal-glass-dashboard.git
+cd royal-glass-dashboard
 npm install
-```
-
-### 3. Log in to Google
-
-```bash
 clasp login
 ```
 
-This opens a browser. Sign in with the same Google account that owns the spreadsheets.
-Your auth token saves to `~/.clasprc.json` — this is gitignored and stays on your machine only.
+### Set API Keys
 
-### 4. Enable Apps Script API
+In each spreadsheet: **Extensions → Apps Script → Project Settings → Script Properties**
 
-Go to: https://script.google.com/home/usersettings
+| Key | Value |
+|---|---|
+| `SM8_API_KEY` | ServiceM8 API key |
+| `ANTHROPIC_API_KEY` | Anthropic Claude API key |
 
-Turn **Google Apps Script API** ON.
+> Set these in both staging and live spreadsheets separately.
 
-### 5. Push code to staging first
-
-```bash
-npm run deploy:staging
-```
-
-### 6. Test in the staging spreadsheet
-
-Open Staging WO Dashboard → 🔧 Royal Glass menu → run through functions.
-
-### 7. When ready, push to live
+### Deploy
 
 ```bash
-npm run deploy:live
+npm run deploy:staging   # push to staging — test here first
+npm run deploy:live      # push to live — only after staging passes
 ```
 
 ---
 
-## Daily Workflow
-
-### Making a change
+## Development Workflow
 
 ```bash
-# 1. Switch to staging branch
+# 1. Work on staging branch
 git checkout staging
 
-# 2. Make your changes to src/Code.js
+# 2. Make changes to src/Code.js
 
-# 3. Deploy to staging
+# 3. Deploy and test
 npm run deploy:staging
 
-# 4. Test in Staging WO Dashboard
-
-# 5. Commit your changes
+# 4. Commit
 git add .
-git commit -m "describe what you changed"
+git commit -m "describe the change"
 git push origin staging
 
-# 6. Merge to main and deploy live
+# 5. Merge to main and go live
 git checkout main
 git merge staging
 npm run deploy:live
@@ -91,32 +89,15 @@ git push origin main
 
 ---
 
-## Commands Reference
+## Commands
 
-| Command | What it does |
+| Command | Description |
 |---|---|
-| `npm run deploy:staging` | Push current code to Staging WO Dashboard |
-| `npm run deploy:live` | Push current code to Live Work Order Dashboard |
-| `npm run pull:staging` | Pull current staging script down to src/ |
-| `npm run pull:live` | Pull current live script down to src/ |
+| `npm run deploy:staging` | Push code to Staging WO Dashboard |
+| `npm run deploy:live` | Push code to Live Work Order Dashboard |
+| `npm run pull:staging` | Pull staging script down to src/ |
+| `npm run pull:live` | Pull live script down to src/ |
 | `clasp login` | Authenticate with Google |
-| `clasp open` | Open the active Apps Script project in browser |
-
----
-
-## Branch Strategy
-
-```
-main ─────────────────────────────────► Live
-        ▲
-staging ──────────────────────────────► Staging
-        ▲
-feature/your-change ──► staging ──► test ──► main
-```
-
-- `main` — always matches what is live
-- `staging` — work in progress, tested before going live
-- Feature branches — optional, for larger changes
 
 ---
 
@@ -125,12 +106,15 @@ feature/your-change ──► staging ──► test ──► main
 ```
 royal-glass-dashboard/
 ├── src/
-│   ├── Code.js              ← All Apps Script code lives here
-│   └── appsscript.json      ← Apps Script manifest (timezone, runtime)
+│   ├── Code.js              ← All Apps Script source code
+│   └── appsscript.json      ← Manifest (timezone: Pacific/Auckland, runtime: V8)
+├── docs/
+│   ├── UserGuide.md         ← Non-technical guide for Roxy and staff
+│   └── TechnicalDocs.md     ← Full technical reference A–Z
 ├── .clasp.staging.json      ← Staging script ID
 ├── .clasp.live.json         ← Live script ID
-├── .clasp.json              ← Active config (gitignored, swapped by deploy.js)
-├── deploy.js                ← Deploy script (cross-platform)
+├── .clasp.json              ← Active config (gitignored)
+├── deploy.js                ← Cross-platform deploy script
 ├── package.json
 ├── .gitignore
 └── README.md
@@ -138,38 +122,30 @@ royal-glass-dashboard/
 
 ---
 
-## GitHub Setup (First Time)
+## Key Design Decisions
 
-```bash
-git init
-git add .
-git commit -m "Initial commit — v2.0"
-git branch -M main
-git remote add origin https://github.com/YOUR_USERNAME/royal-glass-dashboard.git
-git push -u origin main
-
-# Create staging branch
-git checkout -b staging
-git push -u origin staging
-```
+- **Config-driven** — all settings in `CONFIG` at top of `Code.js`
+- **UUID as PK** — matches ServiceM8 UUIDs, ready for DB migration
+- **SM8 columns read-only** — cols A–E (Work Orders) and A–F (Job Materials) only written by refresh
+- **Manual columns protected** — never overwritten by any automated process
+- **Rolling backups** — max 5 kept, oldest auto-deleted
+- **Audit log** — every manual edit recorded with old/new value and editor email
 
 ---
 
-## Troubleshooting
+## Documentation
 
-| Problem | Fix |
+| Document | Audience |
 |---|---|
-| `clasp: command not found` | Run `npm install -g @google/clasp` |
-| `Error: Could not read API credentials` | Run `clasp login` |
-| `Script ID not found` | Check `.clasp.staging.json` or `.clasp.live.json` has the correct ID |
-| `Google Apps Script API has not been used` | Enable it at https://script.google.com/home/usersettings |
-| Push succeeds but changes not visible | Open the spreadsheet, refresh, reload the menu |
+| [User Guide](docs/UserGuide.md) | Roxy and office staff — non-technical |
+| [Technical Docs](docs/TechnicalDocs.md) | Developers — full A–Z reference |
 
 ---
 
-## Script IDs
+## Changelog
 
-| Environment | Script ID |
-|---|---|
-| Staging | `1Pw9H3bXCS_UHM8ZaLxZ1UWpfN802IEcA4vF8tSqEeovbP6wIci1Y6LAT` |
-| Live | `10xFAWGlibXl9fOkMeHktmBaYWyyjN9xV284T7zzNwLCiwQCfPF9zEiLs` |
+**v2.0 — May 2026** — Full refactor, CONFIG block, 7/30/Full refresh, backup/restore, audit log, clasp + GitHub pipeline
+**v1.6 — April 2026** — Auto-label generation on refresh, two-line label format
+**v1.5 — April 2026** — Label automation, col G validation fix
+**v1.4 — April 2026** — Work Orders simplified, test sheet removed
+**v1.0 — April 2026** — Initial build, SM8 integration, basic label generation
